@@ -26,6 +26,7 @@ paths:
       description: >
         The operation is atomic. Repeating a successful request applies another installment.
         Days and withdrawal history remain unchanged.
+        Optional configured balance adjustments also apply; none are enabled by default.
       responses:
         '204':
           description: All balances updated and the database transaction committed.
