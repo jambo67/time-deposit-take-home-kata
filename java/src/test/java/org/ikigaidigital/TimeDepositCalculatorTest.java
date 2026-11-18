@@ -65,10 +65,10 @@ class TimeDepositCalculatorTest {
   }
 
   @ParameterizedTest
-  @CsvSource({"60, 1200", "61, 1206", "180, 1206", "181, 1200"})
-  void allowsRatesAndDurationToChangeByRegisteringADifferentPolicy(int days, double expected) {
+  @CsvSource({"10, 1200", "11, 1206", "20, 1206", "21, 1200"})
+  void delegatesTheEntireDayWindowToTheConfiguredPolicy(int days, double expected) {
     TimeDepositCalculator configured = new TimeDepositCalculator(
-        Map.of("basic", new AnnualRateInterestPolicy(0.06, 60, 180)));
+        Map.of("basic", new AnnualRateInterestPolicy(0.06, 10, 20)));
     TimeDeposit deposit = new TimeDeposit(1, "basic", 1200.0, days);
 
     configured.updateBalance(List.of(deposit));
@@ -79,7 +79,7 @@ class TimeDepositCalculatorTest {
   @Test
   void supportsADifferentCalculationThroughThePolicyInterface() {
     TimeDepositCalculator configured = new TimeDepositCalculator(
-        Map.of("new-plan", deposit -> deposit.getBalance() >= 1000 ? 10.0 : 2.0));
+        Map.of("new-plan", context -> context.openingBalance() >= 1000 ? 10.0 : 2.0));
     List<TimeDeposit> deposits = List.of(
         new TimeDeposit(1, "new-plan", 1200.0, 31),
         new TimeDeposit(2, "new-plan", 500.0, 31));

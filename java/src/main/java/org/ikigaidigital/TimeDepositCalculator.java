@@ -6,12 +6,14 @@ import java.util.List;
 import java.util.Map;
 import org.ikigaidigital.adjustment.BalanceAdjustment;
 import org.ikigaidigital.adjustment.BalanceContext;
-import org.ikigaidigital.interest.AnnualRateInterestPolicy;
+import org.ikigaidigital.interest.DefaultInterestPolicies;
+import org.ikigaidigital.interest.InterestContext;
 import org.ikigaidigital.interest.InterestPolicy;
+import org.ikigaidigital.interest.InterestPolicyProvider;
 
 public class TimeDepositCalculator {
 
-  private final Map<String, InterestPolicy> policies;
+  private final InterestPolicyProvider policies;
   private final List<BalanceAdjustment> adjustments;
 
   public TimeDepositCalculator() {
@@ -19,10 +21,7 @@ public class TimeDepositCalculator {
   }
 
   public TimeDepositCalculator(List<BalanceAdjustment> adjustments) {
-    this(Map.of(
-        "basic", new AnnualRateInterestPolicy(0.01, 30, Integer.MAX_VALUE),
-        "student", new AnnualRateInterestPolicy(0.03, 30, 365),
-        "premium", new AnnualRateInterestPolicy(0.05, 45, Integer.MAX_VALUE)), adjustments);
+    this(DefaultInterestPolicies.asMap(), adjustments);
   }
 
   public TimeDepositCalculator(Map<String, InterestPolicy> policies) {
@@ -31,20 +30,22 @@ public class TimeDepositCalculator {
 
   public TimeDepositCalculator(
       Map<String, InterestPolicy> policies, List<BalanceAdjustment> adjustments) {
-    this.policies = Map.copyOf(policies);
+    this(InterestPolicyProvider.byPlan(policies), adjustments);
+  }
+
+  public TimeDepositCalculator(
+      InterestPolicyProvider policies, List<BalanceAdjustment> adjustments) {
+    this.policies = policies;
     this.adjustments = List.copyOf(adjustments);
   }
 
   public void updateBalance(List<TimeDeposit> deposits) {
     for (TimeDeposit deposit : deposits) {
       double openingBalance = deposit.getBalance();
-      double interest = 0;
-      if (deposit.getDays() > 30) {
-        InterestPolicy policy = policies.get(deposit.getPlanType());
-        if (policy != null) {
-          interest = policy.calculateInterest(deposit);
-        }
-      }
+      InterestContext interestContext = new InterestContext(deposit.getId(), deposit.getPlanType(),
+          openingBalance, deposit.getDays());
+      InterestPolicy policy = policies.policyFor(interestContext);
+      double interest = policy == null ? 0 : policy.calculateInterest(interestContext);
       // Preserve the original double conversion and rounding, including half-cent boundaries.
       double roundedInterest =
           new BigDecimal(interest).setScale(2, RoundingMode.HALF_UP).doubleValue();
