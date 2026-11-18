@@ -6,7 +6,7 @@ The user authorized implementation on 17 November 2026 and clarified that this s
 
 - One Java 25 Maven module using Spring Boot 4.1.2.
 - Protected `TimeDeposit` source unchanged; existing calculator API and behavior preserved.
-- One `InterestPolicy` interface, a reusable annual-rate/day-window implementation, and a map of registrations.
+- Basic, Student, and Premium are configurable Spring policy beans. `InterestPolicyProvider` separates selection from `InterestPolicy` calculation, using an immutable opening context. A generic predicate adapter permits independently supplied eligibility conditions. Standalone constructors retain the same defaults without Spring dependencies.
 - Independent `BalanceAdjustment` rules compose signed decimal credits and deductions from one immutable opening-balance context. Optional Spring beans are collected at startup; no adjustments are enabled by default.
 - One application service, one repository interface, a JDBC adapter, and a REST controller.
 - Exactly two challenge operations: GET `/time-deposits` and POST `/time-deposits/balance-updates`.
@@ -30,14 +30,16 @@ Preserve the original binary-double conversion and rounding of interest before a
 
 Base-interest eligibility does not implicitly gate independent adjustments. All matching adjustments use the same opening balance and already-rounded base interest. Each rule owns its monetary rounding; the calculator sums returned decimal amounts before converting the combined balance to the shared model. Stateful once-only promotions and sequential compounding need explicit future business requirements.
 
+Only the challenge's monthly plan calculations are implemented. Daily/calendar policies, policy-list configuration, and combination rules remain future extensions through the policy/provider interfaces. No calendar processing, clock plumbing, or new installment formula is included. Existing rates and day windows are read from Spring properties at startup, with the original values as defaults.
+
 Locking provides correct serial results for concurrent requests; it does not provide once-per-calendar-month deduplication. Batch processing bounds update memory; full-response size and the duration of the single update transaction remain scaling limits.
 
 ## Verification
 
 - Before refactoring, 22 characterization tests passed against the original calculator.
-- After the adjustment extension, 40 domain tests and 10 PostgreSQL/HTTP integration tests passed: 50 total, no failures or skips.
+- The scoped solution has 45 domain/configuration tests and 10 PostgreSQL/HTTP integration tests. Context tests cover configured rates/day boundaries, retention of unspecified defaults, discovery of a test-only policy/predicate, and substitution of the selection provider.
 - Database tests cover withdrawal serialization, multi-batch updates, rollback after a later database or adjustment failure, Spring adjustment-bean discovery, combined balances, foreign keys, and two overlapping HTTP requests observed waiting on real database locks.
-- The checked-in Maven Wrapper completed `clean verify` on JDK 25 and produced the executable Spring Boot jar. All 50 tests passed, including the local Swagger UI CORS assertion.
+- The checked-in Maven Wrapper completed `clean verify` on JDK 25 and produced the executable Spring Boot jar. All 55 tests passed, including the local Swagger UI CORS assertion.
 
 ## Repository identity and delivery
 

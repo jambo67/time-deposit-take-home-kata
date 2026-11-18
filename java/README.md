@@ -88,13 +88,39 @@ REST controller -> application service -> calculator
                          ^
                      JDBC adapter
 
-calculator -> base interest policy
+calculator -> policy provider -> selected policy (eligibility + calculation)
            -> all matching balance adjustments (one opening-balance snapshot)
 ```
 
 The shared `TimeDeposit` class is unchanged. The calculator keeps its no-argument constructor and `updateBalance(List<TimeDeposit>)` signature.
 
-`InterestPolicy` is the base-interest extension point. `AnnualRateInterestPolicy` describes the existing formula with an annual rate and day window. To change a rate/window, change its registration in `TimeDepositCalculator`. To add a different base calculation, implement the interface and register it under a new plan name. The common first-30-days exclusion and original rounding apply only to base interest.
+The implemented policies are Basic, Student, and Premium. Spring registers them as `InterestPolicy` beans named `basic`, `student`, and `premium`. The default `InterestPolicyProvider` uses an immutable map keyed by those names. The calculator asks the provider for a policy and delegates eligibility and calculation to it; it contains no fixed plan names, rates, or day cutoff.
+
+`InterestContext` exposes an immutable snapshot of the existing deposit inputs: ID, plan, opening balance, and days. `InterestPolicy` defines the calculation, including its eligibility rules. `InterestPolicyProvider` defines selection separately, so future criteria can replace plan-name lookup without changing the calculator. Spring uses the default provider only when no custom provider bean is registered.
+
+`AnnualRateInterestPolicy` describes the existing formula with an annual rate, an exclusive `startsAfterDays` boundary, and an inclusive `lastEligibleDay` boundary. `InterestConfiguration` reads each setting from Spring's properties, falling back to the shared `DefaultInterestPolicies` values shown above. For example, these optional settings in `application.properties` change Basic's eligibility to days 11 through 180, retaining its default rate:
+
+```properties
+interest.basic.starts-after-days=10
+interest.basic.last-eligible-day=180
+```
+
+The same keys are available under `interest.student` and `interest.premium`; `annual-rate` configures the rate (for example, `0.03` means 3% annually). Unspecified settings retain their defaults. Settings apply at startup. The unchanged defaults enforce the challenge's first-30-days exclusion, Student's one-year limit, and Premium's 45-day wait.
+
+`ConditionalInterestPolicy` is a small adapter pairing a `Predicate<InterestContext>` with a calculation. It allows conditions to be supplied independently; predicates can combine criteria using `and`/`or`. A new policy implementation can be registered as another bean under its plan name. For example, this test-only extension demonstrates the wiring:
+
+```java
+@Bean("new-plan")
+InterestPolicy balanceBasedInterest() {
+  return new ConditionalInterestPolicy(
+      context -> context.openingBalance() >= 1000,
+      context -> 10.0);
+}
+```
+
+This example is not enabled in production. Future daily or calendar rules would be new policy/provider implementations. Combining several base calculations could be implemented behind the same `InterestPolicy` interface once its selection and combination rules are specified. These future features and their configuration formats are not implemented here.
+
+Implementations should be stateless and side-effect-free. Standalone constructors use the same defaults without Spring; callers can also supply a policy map or provider. Original rounding remains the calculator's responsibility.
 
 `BalanceAdjustment` is a separate extension point for independent credits and deductions. It receives an immutable `BalanceContext` containing the deposit ID, plan, days, opening balance, and already-rounded base interest. Every matching adjustment contributes a signed `BigDecimal` amount. Conditions and calculations use the same snapshot; they do not see balances changed by earlier adjustments. The decimal deltas are summed before one final conversion back to the protected model's double balance.
 
@@ -113,7 +139,7 @@ This example is not enabled in production. The application collects optional adj
 
 All matching adjustments apply, so there is no single winning rule or priority ordering. Each rule returns its final decimal amount and owns any rule-specific rounding. Implementations should be side-effect-free. An adjustment can apply while base interest is zero if its own predicate allows it. Adjustments run on each successful update; once-only promotions would require separately specified persisted tracking.
 
-The REST contract, persistence workflow, and transaction boundary are unchanged by registration of calculation rules.
+The provider and calculator copy registrations at startup. New beans and property changes take effect after restarting the application. The REST contract, persistence workflow, and transaction boundary are unchanged by registration of calculation rules.
 
 The repository interface separates application orchestration from SQL. Domain policies have no Spring or database dependencies. Spring supplies dependency injection and the application transaction boundary; there is no additional framework or module hierarchy.
 
@@ -122,6 +148,8 @@ The repository interface separates application orchestration from SQL. Domain po
 Each update reads up to 500 rows at a time, in primary-key order, using `SELECT ... FOR UPDATE`. It calculates only after acquiring those locks and writes with JDBC batches. All batches share one transaction. Another application instance therefore waits and calculates from the committed balance, rather than overwriting a credit calculated from stale data. The request captures an upper ID bound at its start.
 
 GET uses one ordered join, avoiding one query per deposit. The required full JSON list is materialized in memory. Updates have bounded application memory, but their locks remain held until the whole transaction ends. These are deliberate limits for a small synchronous exercise; very large datasets would justify streaming/pagination and an agreed background-processing contract.
+
+The default provider performs a constant-time lookup by plan. Its map is copied at startup, and the built-in policies and calculation contexts are immutable. Scaling to multiple application instances retains the existing PostgreSQL row-lock protection; replacing selection or calculation logic requires no change to the persistence loop.
 
 ## Test and build
 
@@ -134,13 +162,14 @@ Docker must be running. Testcontainers creates and removes its own PostgreSQL co
 To run the domain tests without Docker:
 
 ```sh
-./mvnw -Dtest=TimeDepositCalculatorTest,BalanceAdjustmentTest test
+./mvnw -Dtest=TimeDepositCalculatorTest,BalanceAdjustmentTest,InterestConfigurationTest test
 ```
 
 The suite covers:
 
 - Original rate/day boundaries, rounding, repeated calls, and unchanged metadata.
-- Reconfiguring rate/window values and registering a different calculation.
+- Reconfiguring rate/window values through Spring properties, retaining unspecified defaults, and allowing a configured cutoff earlier than day 30.
+- Discovering a test policy bean with an independently supplied predicate, and substituting the selection provider without changing the calculator.
 - Stacking positive and negative adjustments, amount boundaries, combined criteria, and order-independent eligibility from the opening snapshot.
 - Independent adjustment eligibility when base interest is zero, immutable startup registrations, and unchanged legacy rounding.
 - Spring adjustment-bean discovery, decimal persistence of combined results, and rollback after an adjustment fails in a later batch.
@@ -160,6 +189,6 @@ The reproducible workflow was: read the supplied code and constraints; run chara
 
 A concise task prompt that reproduces the intended scope:
 
-> Implement the Java time-deposit exercise as a small, roughly one-hour solution. Preserve the shared model, calculator signature, rates, day boundaries, and rounding. Use a policy interface with reusable rate/window rules and optional independent balance adjustments evaluated against one immutable opening snapshot. Enable no adjustments without supplied business rules. Keep exactly two REST operations, PostgreSQL persistence, and atomic updates protected by database row locks. Verify boundaries, composition, rollback, and concurrent requests. Document assumptions and startup. Do not commit or push.
+> Implement only the Java time-deposit challenge's required behavior as a small solution. Preserve the shared model, calculator signature, rates, day boundaries, and rounding. Use configurable Spring policy beans, replaceable selection/calculation abstractions, and an immutable opening snapshot. Retain optional independent balance-adjustment abstractions with no active adjustments. Future daily/calendar policies and composition rules must remain extension possibilities, not implemented features. Keep exactly two REST operations, PostgreSQL persistence, and atomic updates protected by database row locks. Verify behavior, configuration, extension wiring, rollback, and concurrent requests. Document assumptions and startup. Do not commit or push.
 
 AI output still requires the candidate's own review and understanding before submission. Commits and pushes require explicit candidate authorization.
