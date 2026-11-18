@@ -1,5 +1,7 @@
 # Time Deposit Refactoring Kata - Take-Home Assignment
 
+**Java solution:** [Run, test, API contract, design, assumptions, and AI workflow](java/README.md).
+
 ## XA Bank Time Deposit
 
 ### Context
