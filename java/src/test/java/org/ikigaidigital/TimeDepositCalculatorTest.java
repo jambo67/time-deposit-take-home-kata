@@ -3,6 +3,8 @@ package org.ikigaidigital;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
+import org.ikigaidigital.interest.AnnualRateInterestPolicy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -60,5 +62,30 @@ class TimeDepositCalculatorTest {
   @Test
   void acceptsAnEmptyList() {
     calculator.updateBalance(List.of());
+  }
+
+  @ParameterizedTest
+  @CsvSource({"60, 1200", "61, 1206", "180, 1206", "181, 1200"})
+  void allowsRatesAndDurationToChangeByRegisteringADifferentPolicy(int days, double expected) {
+    TimeDepositCalculator configured = new TimeDepositCalculator(
+        Map.of("basic", new AnnualRateInterestPolicy(0.06, 60, 180)));
+    TimeDeposit deposit = new TimeDeposit(1, "basic", 1200.0, days);
+
+    configured.updateBalance(List.of(deposit));
+
+    assertThat(deposit.getBalance()).isEqualTo(expected);
+  }
+
+  @Test
+  void supportsADifferentCalculationThroughThePolicyInterface() {
+    TimeDepositCalculator configured = new TimeDepositCalculator(
+        Map.of("new-plan", deposit -> deposit.getBalance() >= 1000 ? 10.0 : 2.0));
+    List<TimeDeposit> deposits = List.of(
+        new TimeDeposit(1, "new-plan", 1200.0, 31),
+        new TimeDeposit(2, "new-plan", 500.0, 31));
+
+    configured.updateBalance(deposits);
+
+    assertThat(deposits).extracting(TimeDeposit::getBalance).containsExactly(1210.0, 502.0);
   }
 }
