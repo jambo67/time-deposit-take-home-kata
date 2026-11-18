@@ -1,0 +1,78 @@
+openapi: 3.0.3
+info:
+  title: Time Deposit API
+  version: 1.0.0
+  description: One monthly installment per update request, preserving the supplied calculator.
+servers:
+  - url: http://localhost:8080
+paths:
+  /time-deposits:
+    get:
+      operationId: listTimeDeposits
+      summary: Retrieve all deposits with their withdrawal history
+      responses:
+        '200':
+          description: Deposits ordered by ID; withdrawals ordered by date and ID.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeDeposit'
+  /time-deposits/balance-updates:
+    post:
+      operationId: updateAllBalances
+      summary: Apply one monthly interest installment to every deposit
+      description: >
+        The operation is atomic. Repeating a successful request applies another installment.
+        Days and withdrawal history remain unchanged.
+      responses:
+        '204':
+          description: All balances updated and the database transaction committed.
+components:
+  schemas:
+    TimeDeposit:
+      type: object
+      additionalProperties: false
+      required: [id, planType, balance, days, withdrawals]
+      properties:
+        id:
+          type: integer
+          format: int32
+          example: 1
+        planType:
+          type: string
+          example: basic
+        balance:
+          type: number
+          multipleOf: 0.01
+          example: 1200.00
+        days:
+          type: integer
+          format: int32
+          example: 31
+        withdrawals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Withdrawal'
+    Withdrawal:
+      type: object
+      additionalProperties: false
+      required: [id, timeDepositId, amount, date]
+      properties:
+        id:
+          type: integer
+          format: int32
+          example: 1
+        timeDepositId:
+          type: integer
+          format: int32
+          example: 1
+        amount:
+          type: number
+          multipleOf: 0.01
+          example: 50.00
+        date:
+          type: string
+          format: date
+          example: '2026-01-15'

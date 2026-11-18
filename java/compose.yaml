@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:17.12-alpine
+    ports:
+      - "127.0.0.1:15432:5432"
+    environment:
+      POSTGRES_DB: time_deposit
+      POSTGRES_USER: time_deposit
+      POSTGRES_PASSWORD: local-development
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U time_deposit -d time_deposit"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+  swagger:
+    image: swaggerapi/swagger-ui:v5.35.0
+    profiles: [docs]
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      SWAGGER_JSON: /spec/openapi.yaml
+      VALIDATOR_URL: none
+    volumes:
+      - ./openapi.yaml:/spec/openapi.yaml:ro
